@@ -208,22 +208,23 @@
 package main
 
 import (
-    "context"
-    "encoding/json"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "time"
+	"context"
+	"encoding/json"
+	// "fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"time"
 
-    "github.com/go-chi/chi"
-    "github.com/go-chi/chi/middleware"
-    "github.com/rs/cors"
-    "github.com/thedevsaddam/renderer"
-    "go.mongodb.org/mongo-driver/bson"
-    "go.mongodb.org/mongo-driver/bson/primitive"
-    "go.mongodb.org/mongo-driver/mongo"
-    "go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/middleware"
+	"github.com/rs/cors"
+	"github.com/thedevsaddam/renderer"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var rnd *renderer.Render
@@ -237,6 +238,25 @@ const (
     port           = ":9000"
 )
 
+// type (
+//     // todoModel defines the structure for a single user in MongoDB storage
+//     todoModel struct { 
+//         ID       primitive.ObjectID `bson:"_id"`        // MongoDB ObjectID
+//         Email    string             `bson:"email"`      // User's email
+//         Password string             `bson:"password"`   // User's password (should be hashed)
+//         Todolist []todoItem         `bson:"todolist"`   // List of todos for the user
+//     }
+
+//     // todoItem defines individual todo item structure
+//     todoItem struct {
+//         Title       string    `bson:"title"`       // Title of the todo
+//         Description string    `bson:"description"` // Description of the todo
+//         Completed   bool      `bson:"completed"`   // Completion status
+//         CreatedAt   time.Time `bson:"createdAt"`   // Creation timestamp of the todo
+//     }
+    
+// )
+
 type (
     // todoModel defines the structure for a single user in MongoDB storage
     todoModel struct { 
@@ -248,13 +268,14 @@ type (
 
     // todoItem defines individual todo item structure
     todoItem struct {
-        Title       string    `bson:"title"`       // Title of the todo
-        Description string    `bson:"description"` // Description of the todo
-        Completed   bool      `bson:"completed"`   // Completion status
-        CreatedAt   time.Time `bson:"createdAt"`   // Creation timestamp of the todo
+        ID          primitive.ObjectID `bson:"_id"`         // Unique ID for each todo item
+        Title       string             `bson:"title"`       // Title of the todo
+        Description string             `bson:"description"` // Description of the todo
+        Completed   bool               `bson:"completed"`   // Completion status
+        CreatedAt   time.Time          `bson:"createdAt"`   // Creation timestamp of the todo
     }
-    
 )
+
 
 func init() {
     rnd = renderer.New()
@@ -386,6 +407,37 @@ func fetchtodo(w http.ResponseWriter, r *http.Request) {
     rnd.JSON(w, http.StatusOK, renderer.M{"data": user.Todolist})
 }
 
+// func createtodo(w http.ResponseWriter, r *http.Request) {
+//     userID, err := getUserIDFromCookie(r)
+//     if err != nil {
+//         rnd.JSON(w, http.StatusUnauthorized, renderer.M{"message": "Unauthorized"})
+//         return
+//     }
+
+//     var newTodo todoItem
+//     if err := json.NewDecoder(r.Body).Decode(&newTodo); err != nil {
+//         rnd.JSON(w, http.StatusBadRequest, renderer.M{"message": "Invalid input"})
+//         return
+//     }
+
+//     if newTodo.Title == "" {
+//         rnd.JSON(w, http.StatusBadRequest, renderer.M{"message": "Title is required"})
+//         return
+//     }
+
+//     collection := db.Collection(collectionName)
+//     newTodo.CreatedAt = time.Now()
+
+//     update := bson.M{"$push": bson.M{"todolist": newTodo}}
+//     _, err = collection.UpdateOne(context.Background(), bson.M{"_id": userID}, update)
+//     if err != nil {
+//         rnd.JSON(w, http.StatusInternalServerError, renderer.M{"message": "Failed to save todo"})
+//         return
+//     }
+
+//     rnd.JSON(w, http.StatusCreated, renderer.M{"message": "Todo created successfully"})
+// }
+
 func createtodo(w http.ResponseWriter, r *http.Request) {
     userID, err := getUserIDFromCookie(r)
     if err != nil {
@@ -404,10 +456,13 @@ func createtodo(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    collection := db.Collection(collectionName)
+    // Assign a unique ID and CreatedAt timestamp to the new todo item
+    newTodo.ID = primitive.NewObjectID()
     newTodo.CreatedAt = time.Now()
 
+    collection := db.Collection(collectionName)
     update := bson.M{"$push": bson.M{"todolist": newTodo}}
+
     _, err = collection.UpdateOne(context.Background(), bson.M{"_id": userID}, update)
     if err != nil {
         rnd.JSON(w, http.StatusInternalServerError, renderer.M{"message": "Failed to save todo"})
@@ -418,6 +473,7 @@ func createtodo(w http.ResponseWriter, r *http.Request) {
 }
 
 
+
 func updatetodo(w http.ResponseWriter, r *http.Request) {
     userID, err := getUserIDFromCookie(r)
     if err != nil {
@@ -426,14 +482,21 @@ func updatetodo(w http.ResponseWriter, r *http.Request) {
     }
 
     var updatedTodo todoItem
+    // fmt.Println(updatedTodo)
     if err := json.NewDecoder(r.Body).Decode(&updatedTodo); err != nil {
         rnd.JSON(w, http.StatusBadRequest, renderer.M{"message": "Invalid input"})
         return
     }
 
     collection := db.Collection(collectionName)
-    filter := bson.M{"_id": userID, "todolist.title": updatedTodo.Title}
-    update := bson.M{"$set": bson.M{"todolist.$.completed": updatedTodo.Completed}}
+
+    // Filter for the specific user and specific todo item by ID
+    filter := bson.M{"_id": userID, "todolist._id": updatedTodo.ID}
+    update := bson.M{"$set": bson.M{
+        "todolist.$.title":       updatedTodo.Title,
+        "todolist.$.description": updatedTodo.Description,
+        "todolist.$.completed":   updatedTodo.Completed,
+    }}
 
     _, err = collection.UpdateOne(context.Background(), filter, update)
     if err != nil {
@@ -444,6 +507,8 @@ func updatetodo(w http.ResponseWriter, r *http.Request) {
     rnd.JSON(w, http.StatusOK, renderer.M{"message": "Todo updated successfully"})
 }
 
+
+
 func deletetodo(w http.ResponseWriter, r *http.Request) {
     userID, err := getUserIDFromCookie(r)
     if err != nil {
@@ -451,10 +516,17 @@ func deletetodo(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    title := chi.URLParam(r, "title")
+    // Assume the todo item ID is passed as a URL parameter
+    todoIDParam := chi.URLParam(r, "id")
+    todoID, err := primitive.ObjectIDFromHex(todoIDParam)
+    if err != nil {
+        rnd.JSON(w, http.StatusBadRequest, renderer.M{"message": "Invalid ID"})
+        return
+    }
+
     collection := db.Collection(collectionName)
     filter := bson.M{"_id": userID}
-    update := bson.M{"$pull": bson.M{"todolist": bson.M{"title": title}}}
+    update := bson.M{"$pull": bson.M{"todolist": bson.M{"_id": todoID}}}
 
     _, err = collection.UpdateOne(context.Background(), filter, update)
     if err != nil {
@@ -464,6 +536,8 @@ func deletetodo(w http.ResponseWriter, r *http.Request) {
 
     rnd.JSON(w, http.StatusOK, renderer.M{"message": "Todo deleted successfully"})
 }
+
+
 
 func getUserIDFromCookie(r *http.Request) (primitive.ObjectID, error) {
     cookie, err := r.Cookie("userID")
@@ -532,7 +606,7 @@ func todoHandler() http.Handler {
     rg.Post("/login", login)       // New login route
     rg.Get("/", fetchtodo)
     rg.Post("/", createtodo)
-    rg.Put("/{id}", updatetodo)
-    rg.Delete("/{title}", deletetodo) // Use title instead of {id} in DELETE
+    rg.Put("/", updatetodo)
+    rg.Delete("/{id}", deletetodo) // Use title instead of {id} in DELETE
     return rg
 }
